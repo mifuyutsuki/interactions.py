@@ -35,7 +35,9 @@ Attributes:
     CLIENT_FEATURE_FLAGS dict: A dict of feature flags that can be enabled or disabled for the client.
     has_feature_flag Callable[[str], bool]: A function that returns whether a feature flag is enabled.
 
+
 """
+
 import inspect
 import logging
 import os
@@ -183,8 +185,7 @@ class Missing(Sentinel):
         return False
 
 
-class MentionPrefix(Sentinel):
-    ...
+class MentionPrefix(Sentinel): ...
 
 
 GLOBAL_SCOPE = GlobalScope()
