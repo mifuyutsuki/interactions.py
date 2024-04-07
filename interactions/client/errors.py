@@ -323,10 +323,10 @@ class CommandCheckFailure(CommandException):
 
 class CommandTimedOut(CommandException):
     """
-    A command with a set timeout duration timed out.
+    A command with a set response timeout duration timed out.
 
     Attributes:
-        command BaseCommand: The command with a set timeout
+        command BaseCommand: The command with a set response timeout
         timeout float: Timeout duration
 
     """

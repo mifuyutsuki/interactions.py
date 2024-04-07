@@ -380,9 +380,9 @@ def max_concurrency(bucket: Buckets, concurrent: int) -> Callable[[CommandT], Co
 
 def command_timeout(duration: float) -> Callable[[CommandT], CommandT]:
     """
-    Add a timeout to the command.
+    Add a response timeout to the command.
 
-    Raises `asyncio.TimeoutError` if the command is not finished within the specified duration.
+    Raises `CommandTimedOut` if the command did not respond within the specified duration.
 
     Args:
         duration: Timeout duration in seconds
