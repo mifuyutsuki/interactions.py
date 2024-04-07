@@ -9,6 +9,7 @@ from typing import (
     Coroutine,
     Optional,
     Tuple,
+    Union,
     Any,
     TYPE_CHECKING,
     TypeVar,
@@ -210,24 +211,42 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
         return (annotation, getattr(annotation, name, None))
 
     async def call_with_timeout(self, callback: Callable, context: "BaseContext", timeout: float) -> None:
-        # Distinguish timeouts from within the callback and from command_timeout
-        callback_timed_out = None
-
         try:
-            async with asyncio.timeout(timeout):
-                try:
-                    await self.call_callback(callback, context)
-                except TimeoutError as e:
-                    callback_timed_out = e
-
-        except TimeoutError:
+            callback_exc = await self._wait_for_response(callback, context, timeout)
+        except asyncio.TimeoutError:
             raise CommandTimedOut(self, timeout, context) from None
-
-        if callback_timed_out is not None:
-            raise callback_timed_out
+        if callback_exc is not None:
+            raise callback_exc
 
     async def call_callback(self, callback: Callable, context: "BaseContext") -> None:
         await self.call_with_binding(callback, context, **context.kwargs)  # type: ignore
+
+    async def _wait_for_response(
+        self, callback: Callable, context: "BaseContext", timeout: float
+    ) -> Union[BaseException, None]:
+        # Using asyncio.timeout() would be nice here but that is not available in Python 3.10
+        done = False
+
+        async def _timeout(task: asyncio.Task) -> None:
+            if not done:
+                task.cancel()
+
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(self.call_callback(callback, context))
+        loop.call_later(timeout, loop.create_task, _timeout(task))
+
+        try:
+            while True:
+                if task.done():
+                    # This captures CancelledError automatically
+                    return task.exception()
+                if hasattr(context, "responded") and context.responded:
+                    return None
+                await asyncio.sleep(0)
+        except asyncio.CancelledError as e:
+            raise asyncio.TimeoutError from e
+        finally:
+            done = True
 
     async def _can_run(self, context: "BaseContext") -> bool:
         """
