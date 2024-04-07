@@ -43,7 +43,7 @@ from .application_commands import (
     sync_needed,
 )
 from .checks import dm_only, guild_only, has_any_role, has_id, has_role, is_owner
-from .command import BaseCommand, check, cooldown, max_concurrency
+from .command import BaseCommand, check, cooldown, max_concurrency, command_timeout
 from .context import (
     AutocompleteContext,
     BaseContext,
@@ -208,6 +208,7 @@ __all__ = (
     "sync_needed",
     "Task",
     "ThreadChannelConverter",
+    "command_timeout",
     "TimeTrigger",
     "UserConverter",
     "VoiceChannelConverter",

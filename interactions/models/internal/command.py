@@ -30,7 +30,13 @@ if TYPE_CHECKING:
     from interactions.models.internal.extension import Extension
     from interactions.models.internal.context import BaseContext
 
-__all__ = ("BaseCommand", "check", "cooldown", "max_concurrency")
+__all__ = (
+    "BaseCommand",
+    "check",
+    "cooldown",
+    "max_concurrency",
+    "command_timeout",
+)
 
 
 @attrs.define(eq=False, order=False, hash=False, kw_only=True)
@@ -72,6 +78,10 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
         default=MISSING,
         metadata=docs("An optional maximum number of concurrent instances to apply to the command") | no_export_meta,
     )
+    timeout: float = attrs.field(
+        default=0.0,
+        metadata=docs("Command timeout in seconds, disabled if zero") | no_export_meta,
+    )
 
     callback: Callable[..., Coroutine] = attrs.field(
         repr=False,
@@ -102,6 +112,8 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
                 self.cooldown = self.callback.cooldown
             if hasattr(self.callback, "max_concurrency"):
                 self.max_concurrency = self.callback.max_concurrency
+            if hasattr(self.callback, "timeout"):
+                self.timeout = self.callback.timeout
 
     def __hash__(self) -> int:
         return id(self)
@@ -129,7 +141,10 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
                     for prerun in self.extension.extension_prerun:
                         await prerun(context, *args, **kwargs)
 
-                await self.call_callback(self.callback, context)
+                if self.timeout > 0.0:
+                    await asyncio.wait_for(self.call_callback(self.callback, context), self.timeout)
+                else:
+                    await self.call_callback(self.callback, context)
 
                 if self.post_run_callback is not None:
                     await self.call_with_binding(self.post_run_callback, context, *args, **kwargs)
@@ -321,6 +336,28 @@ def max_concurrency(bucket: Buckets, concurrent: int) -> Callable[[CommandT], Co
         max_conc = MaxConcurrency(concurrent, bucket)
 
         coro.max_concurrency = max_conc
+
+        return coro
+
+    return wrapper
+
+
+def command_timeout(duration: float) -> Callable[[CommandT], CommandT]:
+    """
+    Add a timeout to the command.
+
+    Raises `asyncio.TimeoutError` if the command is not finished within the specified duration.
+
+    Args:
+        duration: Timeout duration in seconds
+
+    """
+
+    def wrapper(coro: CommandT) -> CommandT:
+        if hasattr(coro, "timeout") and coro.timeout > 0.0:
+            raise ValueError("Timeout for this command is already set")
+
+        coro.timeout = duration
 
         return coro
 
