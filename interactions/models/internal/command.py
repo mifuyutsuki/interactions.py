@@ -36,7 +36,7 @@ __all__ = (
     "check",
     "cooldown",
     "max_concurrency",
-    "command_timeout",
+    "response_timeout",
 )
 
 
@@ -378,7 +378,7 @@ def max_concurrency(bucket: Buckets, concurrent: int) -> Callable[[CommandT], Co
     return wrapper
 
 
-def command_timeout(duration: float) -> Callable[[CommandT], CommandT]:
+def response_timeout(duration: float) -> Callable[[CommandT], CommandT]:
     """
     Add a response timeout to the command.
 
