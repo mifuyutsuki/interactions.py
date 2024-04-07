@@ -372,7 +372,8 @@ def command_timeout(duration: float) -> Callable[[CommandT], CommandT]:
 
     def wrapper(coro: CommandT) -> CommandT:
         if hasattr(coro, "timeout") and coro.timeout > 0.0:
-            raise ValueError("Timeout for this command is already set")
+            # Use the latest set timeout value
+            return coro
 
         coro.timeout = duration
 
