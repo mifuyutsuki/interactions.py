@@ -700,6 +700,13 @@ class Client(
                         color=BrandColors.FUCHSIA,
                     )
                 )
+            elif isinstance(event.error, errors.CommandTimedOut):
+                await event.ctx.send(
+                    embeds=Embed(
+                        description=f"This command did not respond in time! ({event.error.timeout} seconds)",
+                        color=BrandColors.FUCHSIA,
+                    )
+                )
             elif isinstance(event.error, errors.MaxConcurrencyReached):
                 await event.ctx.send(
                     embeds=Embed(
