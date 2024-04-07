@@ -33,6 +33,7 @@ __all__ = (
     "CommandOnCooldown",
     "MaxConcurrencyReached",
     "CommandCheckFailure",
+    "CommandTimedOut",
     "BadArgument",
     "MessageException",
     "EmptyMessageException",
@@ -318,6 +319,24 @@ class CommandCheckFailure(CommandException):
         self.command: "BaseCommand" = command
         self.check: Callable[..., Coroutine] = check
         self.ctx = context
+
+
+class CommandTimedOut(CommandException):
+    """
+    A command with a set timeout duration timed out.
+
+    Attributes:
+        command BaseCommand: The command with a set timeout
+        timeout float: Timeout duration
+
+    """
+
+    def __init__(self, command: "BaseCommand", timeout: float, context: "BaseContext") -> None:
+        self.command: "BaseCommand" = command
+        self.timeout: float = timeout
+        self.ctx = context
+
+        super().__init__(f"Command timed out. ({timeout} seconds)")
 
 
 class BadArgument(CommandException):

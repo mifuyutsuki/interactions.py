@@ -17,7 +17,7 @@ from typing import (
 import attrs
 
 from interactions.client.const import MISSING, AsyncCallable
-from interactions.client.errors import CommandOnCooldown, CommandCheckFailure, MaxConcurrencyReached
+from interactions.client.errors import CommandOnCooldown, CommandCheckFailure, MaxConcurrencyReached, CommandTimedOut
 from interactions.client.mixins.serialization import DictSerializationMixin
 from interactions.client.utils.attr_utils import docs
 from interactions.client.utils.misc_utils import get_parameters, get_object_name, maybe_coroutine
@@ -142,7 +142,7 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
                         await prerun(context, *args, **kwargs)
 
                 if self.timeout > 0.0:
-                    await asyncio.wait_for(self.call_callback(self.callback, context), self.timeout)
+                    await self.call_with_timeout(self.callback, context, self.timeout)
                 else:
                     await self.call_callback(self.callback, context)
 
@@ -208,6 +208,23 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
                 if v is not None:
                     return (ann, v)
         return (annotation, getattr(annotation, name, None))
+
+    async def call_with_timeout(self, callback: Callable, context: "BaseContext", timeout: float) -> None:
+        # Distinguish timeouts from within the callback and from command_timeout
+        callback_timed_out = None
+
+        try:
+            async with asyncio.timeout(timeout):
+                try:
+                    await self.call_callback(callback, context)
+                except TimeoutError as e:
+                    callback_timed_out = e
+
+        except TimeoutError:
+            raise CommandTimedOut(self, timeout, context) from None
+
+        if callback_timed_out is not None:
+            raise callback_timed_out
 
     async def call_callback(self, callback: Callable, context: "BaseContext") -> None:
         await self.call_with_binding(callback, context, **context.kwargs)  # type: ignore
