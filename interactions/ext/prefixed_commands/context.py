@@ -26,6 +26,8 @@ class PrefixedContext(BaseContext, SendMixin):
     "The message content without the command and prefix."
     command: "PrefixedCommand"
     "The command this context invokes."
+    responded: bool = False
+    "Whether the command has been responded to."
 
     args: list[str]
     "The arguments passed to the message."
@@ -104,4 +106,6 @@ class PrefixedContext(BaseContext, SendMixin):
 
         """
         ref = MessageReference.for_message(self.message, fail_if_not_exists=fail_if_not_exists)
-        return await self.send(content=content, reply_to=ref, embeds=embeds or embed, **kwargs)
+        message = await self.send(content=content, reply_to=ref, embeds=embeds or embed, **kwargs)
+        self.responded = True
+        return message
