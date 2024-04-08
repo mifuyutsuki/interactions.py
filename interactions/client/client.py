@@ -703,7 +703,7 @@ class Client(
             elif isinstance(event.error, errors.CommandTimedOut):
                 await event.ctx.send(
                     embeds=Embed(
-                        description=f"This command did not respond in time! ({event.error.timeout} seconds)",
+                        description=f"This command did not respond! ({event.error.timeout} seconds)",
                         color=BrandColors.FUCHSIA,
                     )
                 )
