@@ -26,7 +26,7 @@ class PrefixedContext(BaseContext, SendMixin):
     "The message content without the command and prefix."
     command: "PrefixedCommand"
     "The command this context invokes."
-    responded: bool = False
+    responded: bool
     "Whether the command has been responded to."
 
     args: list[str]
@@ -56,6 +56,7 @@ class PrefixedContext(BaseContext, SendMixin):
         instance.prefix = ""
         instance.content_parameters = ""
         instance.command = None  # type: ignore
+        instance.responded = False
         instance.args = []
         instance.kwargs = {}
         return instance

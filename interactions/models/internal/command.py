@@ -79,9 +79,9 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
         default=MISSING,
         metadata=docs("An optional maximum number of concurrent instances to apply to the command") | no_export_meta,
     )
-    timeout: float = attrs.field(
-        default=0.0,
-        metadata=docs("Command timeout in seconds, disabled if zero") | no_export_meta,
+    timeout: Optional[float] = attrs.field(
+        default=None,
+        metadata=docs("Command response timeout in seconds") | no_export_meta,
     )
 
     callback: Callable[..., Coroutine] = attrs.field(
@@ -142,7 +142,7 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
                     for prerun in self.extension.extension_prerun:
                         await prerun(context, *args, **kwargs)
 
-                if self.timeout > 0.0:
+                if self.timeout and self.timeout > 0.0:
                     await self.call_with_timeout(self.callback, context, self.timeout)
                 else:
                     await self.call_callback(self.callback, context)
@@ -392,7 +392,7 @@ def response_timeout(duration: float) -> Callable[[CommandT], CommandT]:
     """
 
     def wrapper(coro: CommandT) -> CommandT:
-        if hasattr(coro, "timeout") and coro.timeout > 0.0:
+        if hasattr(coro, "timeout") and coro.timeout and coro.timeout > 0.0:
             # Use the latest set timeout value
             return coro
 
