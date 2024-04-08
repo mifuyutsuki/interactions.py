@@ -224,9 +224,9 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
     async def _wait_for_response(
         self, callback: Callable, context: "BaseContext", timeout: float
     ) -> Union[BaseException, None]:
-        # Using asyncio.timeout() would be nice here but that is not available in Python 3.10
         done = False
 
+        # Using asyncio.timeout() would be nice here but that is not available in Python 3.10
         async def _timeout(task: asyncio.Task) -> None:
             if not done:
                 task.cancel()
@@ -236,17 +236,19 @@ class BaseCommand(DictSerializationMixin, CallbackObject):
         loop.call_later(timeout, loop.create_task, _timeout(task))
 
         try:
+            # Doing this so TimeoutErrors from within the callback are returned instead of raised
             while True:
-                if task.done():
-                    # This captures CancelledError automatically
-                    return task.exception()
                 if hasattr(context, "responded") and context.responded:
-                    return None
-                await asyncio.sleep(0)
+                    # Don't return, let the task finish up so the exception is retrieved
+                    done = True
+                if task.done():
+                    done = True
+                    return task.exception()
+                # Setting this sleep to 0 destroys CPU usage!
+                await asyncio.sleep(0.01)
+
         except asyncio.CancelledError as e:
             raise asyncio.TimeoutError from e
-        finally:
-            done = True
 
     async def _can_run(self, context: "BaseContext") -> bool:
         """
