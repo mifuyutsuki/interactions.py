@@ -384,7 +384,7 @@ def response_timeout(duration: float) -> Callable[[CommandT], CommandT]:
     """
     Add a response timeout to the command.
 
-    Raises `CommandTimedOut` if the command did not respond within the specified duration.
+    Raises `CommandTimedOut` if the command did not respond (typically with `send()`) within the specified duration.
 
     Args:
         duration: Timeout duration in seconds
