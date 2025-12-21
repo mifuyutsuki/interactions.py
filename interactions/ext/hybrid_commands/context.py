@@ -62,6 +62,8 @@ class HybridContext(BaseContext[ClientT], SendMixin):
     """Whether the context has been responded to."""
     ephemeral: bool
     """Whether the context response is ephemeral."""
+    auto_deferred: bool
+    """Whether AutoDefer has deferred this interaction."""
 
     context: Optional[ContextType]
     """Context where the command was triggered from"""
@@ -235,6 +237,10 @@ class HybridContext(BaseContext[ClientT], SendMixin):
             await self.channel.trigger_typing()
 
         self.deferred = True
+
+    async def _defer(self, ephemeral: bool = False, suppress_error: bool = False) -> None:
+        # Internally used by auto_defer()
+        return await self.defer(ephemeral=ephemeral, suppress_error=suppress_error)
 
     async def reply(
         self,

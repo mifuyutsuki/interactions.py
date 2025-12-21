@@ -31,10 +31,12 @@ class AutoDefer:
                 loop = asyncio.get_event_loop()
                 loop.call_later(self.time_until_defer, loop.create_task, self.defer(ctx))
             else:
-                await ctx.defer(ephemeral=self.ephemeral)
+                ctx.auto_deferred = True
+                await ctx._defer(ephemeral=self.ephemeral)
 
     async def defer(self, ctx: "InteractionContext") -> None:
         """Defer the command"""
-        if not ctx.responded or not ctx.deferred:
+        if not ctx.responded and not ctx.deferred:
+            ctx.auto_deferred = True
             with contextlib.suppress(AlreadyDeferred, NotFound, BadRequest, HTTPException):
-                await ctx.defer(ephemeral=self.ephemeral)
+                await ctx._defer(ephemeral=self.ephemeral)

@@ -257,6 +257,8 @@ class BaseInteractionContext(BaseContext[ClientT]):
     """Whether the interaction has been responded to."""
     ephemeral: bool
     """Whether the interaction response is ephemeral."""
+    auto_deferred: bool
+    """Whether AutoDefer has deferred this interaction."""
 
     authorizing_integration_owners: dict[IntegrationType, Snowflake]
     """Mapping of installation contexts that the interaction was authorized for to related user or guild IDs"""
@@ -285,6 +287,7 @@ class BaseInteractionContext(BaseContext[ClientT]):
         self.deferred = False
         self.responded = False
         self.ephemeral = False
+        self.auto_deferred = False
 
     @classmethod
     def from_dict(cls, client: "ClientT", payload: dict) -> Self:
@@ -433,25 +436,32 @@ class InteractionContext(BaseInteractionContext[ClientT], SendMixin):
             suppress_error: Should errors on deferring be suppressed than raised.
 
         """
+        if self.auto_deferred:
+            return
         if suppress_error:
-            with contextlib.suppress(AlreadyDeferred, AlreadyResponded, HTTPException):
+            with contextlib.suppress(HTTPException):
                 await self._defer(ephemeral=ephemeral)
-        else:
-            await self._defer(ephemeral=ephemeral)
-
-    async def _defer(self, *, ephemeral: bool = False) -> None:
+                return
         if self.deferred:
             raise AlreadyDeferred("Interaction has already been responded to.")
         if self.responded:
             raise AlreadyResponded("Interaction has already been responded to.")
+        await self._defer(ephemeral=ephemeral)
 
+    async def _defer(self, *, ephemeral: bool = False) -> None:
         payload = {"type": CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE}
         if ephemeral:
             payload["data"] = {"flags": MessageFlags.EPHEMERAL}
 
-        await self.client.http.post_initial_response(payload, self.id, self.token)
         self.deferred = True
         self.ephemeral = ephemeral
+
+        try:
+            await self.client.http.post_initial_response(payload, self.id, self.token)
+        except Exception:
+            self.deferred = False
+            self.ephemeral = False
+            raise
 
     async def send_premium_required(self) -> None:
         """
@@ -467,8 +477,12 @@ class InteractionContext(BaseInteractionContext[ClientT], SendMixin):
         if self.responded:
             raise RuntimeError("Cannot send a premium required response after responding")
 
-        await self.client.http.post_initial_response({"type": 10}, self.id, self.token)
         self.responded = True
+        try:
+            await self.client.http.post_initial_response({"type": 10}, self.id, self.token)
+        except Exception:
+            self.responded = False
+            raise
 
     async def _send_http_request(
         self, message_payload: dict, files: typing.Iterable["UPLOADABLE_TYPE"] | None = None
@@ -488,21 +502,28 @@ class InteractionContext(BaseInteractionContext[ClientT], SendMixin):
         else:
             if isinstance(message_payload, FormData) and not self.deferred:
                 await self.defer(ephemeral=self.ephemeral)
-            if self.deferred:
-                if const.has_client_feature("FOLLOWUP_INTERACTIONS_FOR_IMAGES"):
-                    message_data = await self.client.http.post_followup(
-                        message_payload, self.client.app.id, self.token, files=files
-                    )
+            self.responded = True
+            try:
+                if self.deferred:
+                    if const.has_client_feature("FOLLOWUP_INTERACTIONS_FOR_IMAGES"):
+                        message_data = await self.client.http.post_followup(
+                            message_payload, self.client.app.id, self.token, files=files
+                        )
+                    else:
+                        message_data = await self.client.http.edit_interaction_message(
+                            message_payload, self.client.app.id, self.token, files=files
+                        )
                 else:
-                    message_data = await self.client.http.edit_interaction_message(
-                        message_payload, self.client.app.id, self.token, files=files
+                    payload = {
+                        "type": CallbackType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        "data": message_payload,
+                    }
+                    message_data = await self.client.http.post_initial_response(
+                        payload, self.id, self.token, files=files
                     )
-            else:
-                payload = {
-                    "type": CallbackType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    "data": message_payload,
-                }
-                message_data = await self.client.http.post_initial_response(payload, self.id, self.token, files=files)
+            except Exception:
+                self.responded = False
+                raise
 
         if not message_data:
             try:
@@ -510,7 +531,6 @@ class InteractionContext(BaseInteractionContext[ClientT], SendMixin):
             except HTTPException:
                 pass
 
-        self.responded = True
         return message_data
 
     async def send(
@@ -701,18 +721,19 @@ class ContextMenuContext(InteractionContext[ClientT], ModalMixin):
             suppress_error: Should errors on deferring be suppressed than raised.
 
         """
+        if self.auto_deferred:
+            return
         if suppress_error:
-            with contextlib.suppress(AlreadyDeferred, AlreadyResponded, HTTPException):
+            with contextlib.suppress(HTTPException):
                 await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-        else:
-            await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-
-    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
+                return
         if self.deferred:
             raise AlreadyDeferred("Interaction has already been responded to.")
         if self.responded:
             raise AlreadyResponded("Interaction has already been responded to.")
+        await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
 
+    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
         payload = {
             "type": (
                 CallbackType.DEFERRED_UPDATE_MESSAGE
@@ -725,10 +746,17 @@ class ContextMenuContext(InteractionContext[ClientT], ModalMixin):
                 raise ValueError("Cannot use ephemeral and edit_origin together.")
             payload["data"] = {"flags": MessageFlags.EPHEMERAL}
 
-        await self.client.http.post_initial_response(payload, self.id, self.token)
         self.deferred = True
         self.ephemeral = ephemeral
         self.editing_origin = edit_origin
+
+        try:
+            await self.client.http.post_initial_response(payload, self.id, self.token)
+        except Exception:
+            self.deferred = False
+            self.ephemeral = False
+            self.editing_origin = False
+            raise
 
     @property
     def target(self) -> None | Message | User | Member:
@@ -809,18 +837,19 @@ class ComponentContext(InteractionContext[ClientT], ModalMixin):
             suppress_error: Should errors on deferring be suppressed than raised.
 
         """
+        if self.auto_deferred:
+            return
         if suppress_error:
-            with contextlib.suppress(AlreadyDeferred, AlreadyResponded, HTTPException):
+            with contextlib.suppress(HTTPException):
                 await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-        else:
-            await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-
-    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
+                return
         if self.deferred:
             raise AlreadyDeferred("Interaction has already been responded to.")
         if self.responded:
             raise AlreadyResponded("Interaction has already been responded to.")
+        await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
 
+    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
         payload = {
             "type": (
                 CallbackType.DEFERRED_UPDATE_MESSAGE
@@ -833,10 +862,17 @@ class ComponentContext(InteractionContext[ClientT], ModalMixin):
                 raise ValueError("Cannot use ephemeral and edit_origin together.")
             payload["data"] = {"flags": MessageFlags.EPHEMERAL}
 
-        await self.client.http.post_initial_response(payload, self.id, self.token)
         self.deferred = True
         self.ephemeral = ephemeral
         self.editing_origin = edit_origin
+
+        try:
+            await self.client.http.post_initial_response(payload, self.id, self.token)
+        except Exception:
+            self.deferred = False
+            self.ephemeral = False
+            self.editing_origin = False
+            raise
 
     async def edit_origin(
         self,
@@ -888,6 +924,7 @@ class ComponentContext(InteractionContext[ClientT], ModalMixin):
             tts=tts,
         )
 
+        temp_responded = self.responded
         message_data = None
         if self.deferred:
             if not self.editing_origin:
@@ -895,22 +932,31 @@ class ComponentContext(InteractionContext[ClientT], ModalMixin):
                     "If you want to edit the original message, and need to defer, you must set the `edit_origin` kwarg to True!"
                 )
 
-            message_data = await self.client.http.edit_interaction_message(
-                message_payload, self.client.app.id, self.token, files=file if files is None else files
-            )
+            self.responded = True
+            try:
+                message_data = await self.client.http.edit_interaction_message(
+                    message_payload, self.client.app.id, self.token, files=file if files is None else files
+                )
+            except Exception:
+                self.responded = temp_responded
+                raise
             self.deferred = False
             self.editing_origin = False
         else:
             payload = {"type": CallbackType.UPDATE_MESSAGE, "data": message_payload}
-            await self.client.http.post_initial_response(
-                payload, str(self.id), self.token, files=file if files is None else files
-            )
+            self.responded = True
+            try:
+                await self.client.http.post_initial_response(
+                    payload, str(self.id), self.token, files=file if files is None else files
+                )
+            except Exception:
+                self.responded = temp_responded
+                raise
             message_data = await self.client.http.get_interaction_message(self.client.app.id, self.token)
 
         if message_data:
             message = self.client.cache.place_message_data(message_data)
             self.message_id = message.id
-            self.responded = True
             return message
 
     @property
@@ -964,18 +1010,19 @@ class ModalContext(InteractionContext[ClientT]):
             suppress_error: Should errors on deferring be suppressed than raised.
 
         """
+        if self.auto_deferred:
+            return
         if suppress_error:
-            with contextlib.suppress(AlreadyDeferred, AlreadyResponded, HTTPException):
+            with contextlib.suppress(HTTPException):
                 await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-        else:
-            await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
-
-    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
+                return
         if self.deferred:
             raise AlreadyDeferred("Interaction has already been responded to.")
         if self.responded:
             raise AlreadyResponded("Interaction has already been responded to.")
+        await self._defer(ephemeral=ephemeral, edit_origin=edit_origin)
 
+    async def _defer(self, *, ephemeral: bool = False, edit_origin: bool = False) -> None:
         payload = {
             "type": (
                 CallbackType.DEFERRED_UPDATE_MESSAGE
@@ -986,12 +1033,17 @@ class ModalContext(InteractionContext[ClientT]):
         if ephemeral:
             payload["data"] = {"flags": MessageFlags.EPHEMERAL}
 
-        if edit_origin:
-            self.edit_origin = True
-
-        await self.client.http.post_initial_response(payload, self.id, self.token)
         self.deferred = True
         self.ephemeral = ephemeral
+        self.edit_origin = edit_origin
+
+        try:
+            await self.client.http.post_initial_response(payload, self.id, self.token)
+        except Exception:
+            self.deferred = False
+            self.ephemeral = False
+            self.edit_origin = False
+            raise
 
 
 class AutocompleteContext(BaseInteractionContext[ClientT]):
